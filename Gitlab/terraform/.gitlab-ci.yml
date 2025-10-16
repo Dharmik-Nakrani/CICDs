@@ -1,0 +1,77 @@
+stages:
+- test
+- validate
+- plan
+- deploy
+- destroy
+
+
+
+before_script:
+    - terraform version
+    # - export TF_VAR_AWS_ACCESS_KEY=${AWS_ACCESS_KEY_ID}
+    # - export TF_VAR_AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    # - export TF_VAR_AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+    - sed -i 's/my_region/'${AWS_DEFAULT_REGION}'/g' provider.tf
+    - sed -i 's/my_secret_key/'${AWS_SECRET_ACCESS_KEY}'/g' provider.tf
+    - sed -i 's/my_access_key/'${AWS_ACCESS_KEY_ID}'/g' provider.tf 
+    - sed -i 's/AdminPassword/'${DB_PASSWORD}'/g' terraform.tfvars
+    - terraform init
+
+
+Validate:
+  stage: validate
+  environment:
+      name: "${CI_COMMIT_REF_SLUG}"
+      action: prepare
+  script:
+      - cat terraform.tfvars
+      - terraform validate
+
+Plan:
+  stage: plan
+  script:
+      # - cat provider.tf
+      - terraform plan -out=plan.txt
+      - terraform show -json plan.txt > test.json
+  artifacts:
+    name: plan
+    paths:
+      - "./test*"
+    reports:
+      terraform: "./test.json"
+  
+
+
+Apply:
+  stage: deploy
+  script:
+    - terraform apply --auto-approve
+  dependencies:
+  - Plan
+  when: manual
+  only: ['development']
+
+# Delete:
+#   stage: destroy
+#   script:
+#     - terraform destroy --auto-approve
+#   when: manual
+#   only: ['development']
+
+# include:
+# - template: Security/SAST-IaC.latest.gitlab-ci.yml
+
+# kics-iac-sast:
+#   after_script:
+#     - apk update --quiet --no-cache && apk add --quiet --no-cache jq util-linux-misc
+#     - ./process-sast.sh -tt
+#     - ./process-sast.sh -tt > gl-sast-report.table.txt
+#     - ./process-sast.sh -s > gl-sast-report.txt
+#   artifacts:
+#     name: 'SAST-Results'
+#     paths: 
+#     - "gl-sast-report.*"
+#     reports:
+#       sast: "gl-sast-report.json"
+
