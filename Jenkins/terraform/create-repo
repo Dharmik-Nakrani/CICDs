@@ -1,0 +1,52 @@
+pipeline{
+    agent any
+    environment {
+        AZDO_ORG_SERVICE_URL = "https://dev.azure.com/Ebizzinfotech/"
+        AZDO_PERSONAL_ACCESS_TOKEN = credentials('Personal-Access-Token')
+    }
+    stages{ 
+        stage('Terraform Variable Set'){
+            steps{
+                script{
+                    env.TF_VAR_PROJECT_NAME = "${params.PROJECT_NAME}"
+                    env.TF_VAR_REPO_ALIAS_NAME = "${params.REPO_NAME}" 
+                    env.TF_VAR_REPO_NAME = "${params.TECHNOLOGIES}"
+                }
+            }   
+        }    
+        stage('SCM'){
+            steps{
+               checkout scmGit(branches: [[name: 'feature/Only-Repo-With-Alias']], extensions: [], userRemoteConfigs: [[url: 'git@ssh.dev.azure.com:v3/EbizzInfotech/DevOps/Terraform-Azure-DevOps']]) 
+            }   
+        }    
+        stage('Terraform Init'){
+            steps{
+                sh "terraform init"
+            }   
+        }
+        stage('Terraform Plan'){
+            steps{
+                sh """
+                terraform plan         
+                """
+            }   
+        }
+        stage('Terraform Apply'){
+            steps{
+                sh """
+                terraform apply --auto-approve
+                """       
+            }   
+        }
+        stage('Terraform tfstate Artifact'){
+            steps{
+                archiveArtifacts artifacts: 'terraform.tfstate', followSymlinks: false      
+            }   
+        }
+    }
+    post{
+        always{
+            cleanWs()
+        }
+    }
+}
