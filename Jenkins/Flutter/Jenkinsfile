@@ -1,0 +1,170 @@
+@Library('My-Shared-Library') _
+
+pipeline {
+    agent {
+        label 'mac'
+    }
+    options {
+        ansiColor('xterm')
+    }
+    environment {
+        FIREBASE_TOKEN = credentials('firebase_token_mobile')
+        APPLE_ID = "demo.mobile@gmail.com"
+        FASTLANE_APPLE_APPLICATION_SPECIFIC_PASSWORD = "xxxx-xxxx-xxxx-xxxx"
+        FIREBASE_EMAIL = "demo.ebizzinfotech@gmail.com," 
+    }
+
+    stages {
+        stage('Set Required Variables'){
+            steps{
+                script{
+                    FLUTTER_PATH = "SDK_PATH"
+                    REPO_URL = "GIT_URL"
+                    env.TEAM_ID = "APPLE_TEAMID" 
+                    env.FASTLANE_ITC_TEAM_ID = "MULTI_ACCESS_ID"
+                    OUTPUT_URL = "https://console.firebase.google.com/"
+                    EMAIL = ""
+                    ENVIRONMENT = JOB_BASE_NAME.split("-")[0]
+                    if(ENVIRONMENT == "Main"){
+                        BRANCH = "main"
+                        MAIN_FILE = "lib/main_prod.dart"
+                        env.APP_ID = "com.example.com"
+                        FLAVOR = "prod"
+                        env.FIREBASE_ANDROID_ID = "FIREBASE_ANDROID"
+                        env.APP_BUILD_PATH_ANDROID = "build/app/outputs/flutter-apk/app-prod-release.apk"
+                        env.FIREBASE_IOS_ID = "FIREBASE_IOS"
+                        APP_CERT = ""
+                        APP_CERT_TF = "distubution_05_06_2023"
+                        env.APP_BUILD_PATH_IOS = "build/ios/ipa/app.ipa"
+                    }
+                    else{
+                        BRANCH = "development"
+                        MAIN_FILE = "lib/main_dev.dart"
+                        env.APP_ID = "com.example.com.dev"
+                        FLAVOR = "dev"
+                        env.FIREBASE_ANDROID_ID = "FIREBASE_ANDROID"
+                        env.APP_BUILD_PATH_ANDROID = "build/app/outputs/flutter-apk/app-dev-release.apk"
+                        env.FIREBASE_IOS_ID = "FIREBASE_IOS"
+                        APP_CERT = "dev_05_06_2023"
+                        env.APP_BUILD_PATH_IOS = "build/ios/ipa/app.ipa"
+                    }
+                }            
+            }   
+        }
+
+        stage('checkout SCM'){
+            steps{
+                script{
+                    checkout scmGit(branches: [[name: "$BRANCH"]], extensions: [cloneOption(depth: 1, noTags: false, reference: '', shallow: true)], userRemoteConfigs:  [[url: "$REPO_URL"]])
+                    env.RELEASE_NOTE = sh(script: 'git log -1 --pretty=%B', returnStdout: true).trim()
+                    print "${RELEASE_NOTE}"
+                }
+            }
+        }
+
+        stage('Get Dependencies') {
+            steps {
+                sh """
+                cp -r /Users/etechm28/Documents/Project_Release/Fastlane/* .
+                $FLUTTER_PATH/flutter clean
+                $FLUTTER_PATH/flutter pub get
+                $FLUTTER_PATH/flutter pub run easy_localization:generate -S assets/translations -f keys -O lib/generated -o locale_keys.g.dart
+                """
+            }
+        }
+
+        
+        stage('Android build APK') {
+            steps {
+                sh """
+                /usr/local/bin/fastlane android increment_version
+                $FLUTTER_PATH/flutter build apk --release --flavor $FLAVOR -t $MAIN_FILE 
+                """
+            }
+        }
+
+        stage('IOS Build IPA') {
+            steps {
+                script{
+                    dir('ios'){
+                        sh """
+                        rm -Rf Pods
+                        rm -Rf .symlinks
+                        rm -Rf Flutter/Flutter.framework
+                        rm -Rf Flutter/Flutter.podspec
+                        pod install --repo-update
+                        """
+                    }
+                    sh "security unlock-keychain -p letsrock login.keychain"
+                    if(ENVIRONMENT == "Main"){
+                        sh """
+                        sed -i '' 's/APP_ID/$APP_ID/g' build.plist
+                        sed -i '' 's/APP_CERT/$APP_CERT_TF/g' build.plist
+                        sed -i '' 's/TEAM_ID/$TEAM_ID/g' build.plist
+                        sed -i '' 's/METHOD_BUILD/app-store/g' build.plist
+                        sed -i '' 's/APPLE_CERTIFICATE/Apple Distribution/g' build.plist
+                        /usr/local/bin/fastlane ios increment_version_tf
+                        $FLUTTER_PATH/flutter build ipa --release -t $MAIN_FILE --export-options-plist build.plist
+                        """
+                    }
+                    else{
+                        sh """
+                        sed -i '' 's/APP_ID/$APP_ID/g' build.plist
+                        sed -i '' 's/APP_CERT/$APP_CERT/g' build.plist
+                        sed -i '' 's/TEAM_ID/$TEAM_ID/g' build.plist
+                        sed -i '' 's/METHOD_BUILD/development/g' build.plist
+                        sed -i '' 's/APPLE_CERTIFICATE/Apple Development/g' build.plist
+                        /usr/local/bin/fastlane ios increment_version
+                        $FLUTTER_PATH/flutter build ipa --release --flavor $FLAVOR -t $MAIN_FILE --export-options-plist build.plist
+                        """
+                    }
+                }
+            }
+        }
+
+
+        stage('Deploy Android App') {
+            steps {
+                script {
+                    sh '/usr/local/bin/fastlane android firebase_distribute_android'
+                }
+            }
+        }
+
+        stage('Deploy IOS App') {
+            when {
+                expression { ENVIRONMENT == "Dev" }
+            }
+            steps {
+                script {
+                    sh '/usr/local/bin/fastlane ios firebase_distribute_ios'
+                }
+            }
+        }
+
+        stage('Deploy to TestFlight') {
+            when {
+                expression { ENVIRONMENT == "Stage" ||  ENVIRONMENT == "Main"}
+            }
+            steps {
+                script {
+                    sh """
+                    /usr/local/bin/fastlane ios upload_in_testflight
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            successEmail("$EMAIL","$OUTPUT_URL")
+        }
+        failure {
+            failEmail("$EMAIL","$OUTPUT_URL") 
+        }
+    }
+}
