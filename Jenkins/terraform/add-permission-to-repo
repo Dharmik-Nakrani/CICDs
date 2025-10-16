@@ -1,0 +1,81 @@
+pipeline {
+    agent any
+
+    environment {
+        # Azure DevOps organization URL (replace with your own org name)
+        AZDO_ORG_SERVICE_URL = "https://dev.azure.com/<YOUR_ORG_NAME>/"
+
+        # Jenkins credential ID containing Azure DevOps Personal Access Token
+        AZDO_PERSONAL_ACCESS_TOKEN = credentials('azdo-pat-token')
+    }
+
+    stages {    
+
+        stage('Checkout Infrastructure Repository') {
+            steps {
+                checkout scmGit(
+                    branches: [[name: 'feature/existing-repo']],
+                    extensions: [cloneOption(depth: 1, shallow: true)],
+                    userRemoteConfigs: [[
+                        credentialsId: 'azdo-repo-credentials',
+                        url: 'https://dev.azure.com/<YOUR_ORG_NAME>/DevOps/_git/terraform-azure-devops'
+                    ]]
+                )
+            }   
+        }    
+
+        stage('Terraform Init') {
+            steps {
+                echo "Initializing Terraform..."
+                sh 'terraform init'
+            }   
+        }
+
+        stage('Terraform validate') {
+            steps {
+                echo "Validate Terraform..."
+                sh 'terraform validate'
+            }   
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                echo "Running Terraform plan for ${params.PROJECT_NAME}"
+                sh """
+                    terraform plan \
+                      -var 'project_name=${params.PROJECT_NAME}' \
+                      -var 'repo_name=${params.REPO_NAME}'
+                """
+            }   
+        }
+
+        stage('Terraform Apply') {
+            when {
+                expression { return params.APPLY_CHANGES == true }
+            }
+            steps {
+                echo "Applying Terraform configuration for ${params.PROJECT_NAME}"
+                sh """
+                    terraform apply \
+                      -var 'project_name=${params.PROJECT_NAME}' \
+                      -var 'repo_name=${params.REPO_NAME}' \
+                      -auto-approve
+                """
+            }   
+        }
+
+        stage('Archive Terraform State') {
+            steps {
+                echo "Archiving terraform.tfstate artifact..."
+                archiveArtifacts artifacts: 'terraform.tfstate', followSymlinks: false      
+            }   
+        }
+    }
+
+    post {
+        always {
+            echo "Cleaning workspace..."
+            cleanWs()
+        }
+    }
+}
