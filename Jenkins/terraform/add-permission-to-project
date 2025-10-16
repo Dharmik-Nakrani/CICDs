@@ -1,0 +1,65 @@
+pipeline {
+    agent any
+
+    environment {
+        # Azure DevOps Organization URL (replace with your own org)
+        AZDO_ORG_SERVICE_URL = "https://dev.azure.com/<YOUR_ORG_NAME>/"
+
+        # Jenkins credential ID for Azure DevOps PAT
+        AZDO_PERSONAL_ACCESS_TOKEN = credentials('azdo-pat-token')
+    }
+
+    stages {    
+
+        stage('Checkout Infrastructure Code') {
+            steps {
+                checkout scmGit(
+                    branches: [[name: 'feature/existing-project']],
+                    extensions: [cloneOption(depth: 1, shallow: true)],
+                    userRemoteConfigs: [[
+                        url: 'git@ssh.dev.azure.com:v3/<YOUR_ORG_NAME>/DevOps/terraform-azure-template'
+                    ]]
+                )
+            }   
+        }    
+
+        stage('Terraform Init') {
+            steps {
+                sh 'terraform init'
+            }   
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                echo "Running Terraform Plan for project: ${params.PROJECT_NAME}"
+                sh """
+                    terraform plan -var 'project_name=${params.PROJECT_NAME}'
+                """
+            }   
+        }
+
+        stage('Terraform Apply') {
+            when {
+                expression { return params.APPLY_CHANGES == true }
+            }
+            steps {
+                echo "Applying Terraform changes for project: ${params.PROJECT_NAME}"
+                sh """
+                    terraform apply -var 'project_name=${params.PROJECT_NAME}' -auto-approve
+                """
+            }   
+        }
+
+        stage('Archive Terraform State') {
+            steps {
+                archiveArtifacts artifacts: 'terraform.tfstate', followSymlinks: false      
+            }   
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
