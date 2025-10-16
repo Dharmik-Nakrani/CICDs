@@ -1,0 +1,98 @@
+pipeline {
+    agent any
+
+    environment {
+        # Credentials should be stored in Jenkins Credentials instead of plain text
+        MY_CREDENTIAL = credentials('jenkins-cicd-cred')
+
+        # Replace internal URLs with placeholders for public repo
+        QA_URL   = "job/<ORG>/Android_And_iOS_Pipelines/job/QA/job/Android_iOS_Release_Branch_QA"
+        UAT_URL  = "job/<ORG>/Android_And_iOS_Pipelines/job/UAT/job/Android_iOS_Release_Branch"
+        PROD_URL = "job/<ORG>/Android_And_iOS_Pipelines/job/Production/job/Android_iOS_Release_Branch"
+        NEW_URL  = "job/<ORG>/Android_And_iOS_Pipelines/job/ReactNativeUpdate_Pipeline"
+    }
+
+    stages {
+
+        stage("Get Node Log of ReactNative Update") {
+            steps {
+                script {
+                    getYarnLog("${env.NEW_URL}", "${params.NEW_BUILD}", "new_yarn.txt")
+                }
+            }
+        }
+
+        stage("Get Node Log of QA") {
+            when { expression { params.COMPARE_ENV == 'QA-UPDATED' } }
+            steps {
+                script {
+                    getNodeLog("${env.QA_URL}", "${params.QA_BUILD}", "qa_node.txt")
+                }
+            }
+        }
+
+        stage("Get Node Log of UAT") {
+            when { expression { params.COMPARE_ENV == 'UAT-UPDATED' } }
+            steps {
+                script {
+                    getNodeLog("${env.UAT_URL}", "${params.UAT_BUILD}", "uat_node.txt")
+                }
+            }
+        }
+
+        stage("Get Pod Log of ReactNative Update") {
+            steps {
+                script {
+                    getPodLog("${env.NEW_URL}", "${params.NEW_BUILD}", "new_pod.txt")
+                }
+            }
+        }
+
+        stage("Get Pod Log of QA") {
+            when { expression { params.COMPARE_ENV == 'QA-UPDATED' } }
+            steps {
+                script {
+                    getPodLog("${env.QA_URL}", "${params.QA_BUILD}", "qa_pod.txt")
+                }
+            }
+        }
+
+        stage("Get Pod Log of UAT") {
+            when { expression { params.COMPARE_ENV == 'UAT-UPDATED' } }
+            steps {
+                script {
+                    getPodLog("${env.UAT_URL}", "${params.UAT_BUILD}", "uat_pod.txt")
+                }
+            }
+        }
+
+        stage("Compare Node Modules") {
+            steps {
+                sh "python3 yarncompare.py > diff_node.txt"
+            }
+        }
+
+        stage("Compare Pod Logs") {
+            steps {
+                script {
+                    def podFile1
+                    def podFile2
+                    if (params.COMPARE_ENV == "QA-UPDATED") {
+                        podFile1 = "srt_qa_pod.txt"
+                        podFile2 = "srt_new_pod.txt"
+                    } else if (params.COMPARE_ENV == "UAT-UPDATED") {
+                        podFile1 = "srt_uat_pod.txt"
+                        podFile2 = "srt_new_pod.txt"
+                    } else {
+                        podFile1 = "srt_prod_pod.txt"
+                        podFile2 = "srt_new_pod.txt"
+                    }
+                    catchError(buildResult: 'SUCCESS') {
+                        sh "diff --side-by-side --suppress-common-lines ${podFile1} ${podFile2} > diff_pod.txt"
+                    }
+                }
+            }
+        }
+
+        stage('Package Logs') {
+            steps {
