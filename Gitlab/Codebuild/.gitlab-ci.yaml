@@ -1,0 +1,14 @@
+stages:
+    - push
+
+push:
+    stage: push
+    script: 
+        - ls
+        - pwd
+        - cd /home/gitlab-runner/
+        - git clone --mirror https://gitlab.com/dharmiksa/gitlab_lambda.git Gitlab_Clone
+        - cd Gitlab_Clone
+        - git push ssh://git-codecommit.us-east-1.amazonaws.com/v1/repos/Gitlab_Clone --all
+        - git push ssh://git-codecommit.us-east-1.amazonaws.com/v1/repos/Gitlab_Clone --tags
+        - rm -rf ../Gitlab_Clone
