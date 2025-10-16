@@ -1,0 +1,43 @@
+pipeline{
+    agent any
+    environment {
+        AZDO_ORG_SERVICE_URL = "https://dev.azure.com/Ebizzinfotech/"
+        AZDO_PERSONAL_ACCESS_TOKEN = credentials('Personal-Access-Token')
+    }
+    stages{    
+        stage('SCM'){
+            steps{
+               checkout scmGit(branches: [[name: '*/main']], extensions: [], userRemoteConfigs: [[credentialsId: 'ebizz Azure repo', url: 'https://EbizzInfotech@dev.azure.com/EbizzInfotech/DevOps/_git/Terraform_Azure_DevOps']]) 
+            }   
+        }    
+        stage('Terraform Init'){
+            steps{
+                sh "terraform init"
+            }   
+        }
+        stage('Terraform Plan'){
+            steps{
+                sh """
+                terraform plan -var 'project_name=[${params.PROJECT_NAME}]' -var 'project_details="${params.PROJECT_DETAILS}"' -var 'Repo_name=[${params.REPO_NAME}]'            
+                """
+            }   
+        }
+        stage('Terraform Apply'){
+            steps{
+                sh """
+                terraform apply -var 'project_name=[${params.PROJECT_NAME}]' -var 'project_details="${params.PROJECT_DETAILS}"' -var 'Repo_name=[${params.REPO_NAME}]' --auto-approve
+                """       
+            }   
+        }
+        stage('Terraform tfstate Artifact'){
+            steps{
+                archiveArtifacts artifacts: 'terraform.tfstate', followSymlinks: false      
+            }   
+        }
+    }
+    post{
+        always{
+            cleanWs()
+        }
+    }
+}
