@@ -1,0 +1,91 @@
+stages:
+  - sast
+  - build
+  - deploy
+  - owazap
+
+
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+  - dist-dev/
+  
+sonarqube-check:
+  stage: sast
+  image: 
+    name: sonarsource/sonar-scanner-cli:latest
+    entrypoint: [""]
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"  # Defines the location of the analysis task cache
+    GIT_DEPTH: "0"  # Tells git to fetch all the branches of the project, required by the analysis task
+  cache:
+    key: "${CI_JOB_NAME}"
+    paths:
+      - .sonar/cache
+  script: 
+    - sonar-scanner
+  allow_failure: true
+  only: ['development']
+
+
+
+build_development:
+  stage: build
+  script:
+    - docker build -t frontms-dev .
+    - docker run -dt --name dev-front -p 4200:4200 frontms-dev
+    - docker cp dev-front:/front/dist-dev .
+    - docker stop dev-front && docker rm dev-front && docker rmi frontms-dev
+  only: ['development']
+
+deploy_development:
+  stage: deploy
+  script:
+  - aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+  - aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+  - aws configure set default.region $AWS_DEFAULT_REGION
+  - aws s3 sync dist-dev/. $NEW_MS_S3_BUCKET
+  only: ['development']
+
+owasp_test:
+  stage: owazap
+  script:
+  - docker stop owasp && docker rm owasp && docker rmi owasp/zap2docker-stable
+  - docker pull owasp/zap2docker-stable:2.11.1
+  - docker run -dt --name owasp owasp/zap2docker-stable /bin/bash
+  - docker exec owasp mkdir /zap/wrk
+  - docker exec owasp zap-baseline.py -t https://dev-ms.taskopad.com -r report -I
+  - docker cp owasp:/zap/wrk/report.html $PWD/report.html
+  - docker stop owasp && docker rm owasp && docker rmi owasp/zap2docker-stable
+  only: ['development']
+  when: manual
+  artifacts:
+    name: taskopad_owasp
+    paths:
+      - "./report.html"
+    reports:
+      terraform: "report.html"
+
+
+build_stage:
+  stage: build
+  script:
+  - npm cache clean --force
+  # - rm -rf node_modules
+  - npm install --force
+  - npm run build-dev
+  only: ['stage']
+
+deploy_stage:
+  stage: deploy
+  script:
+  - aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+  - aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+  - aws configure set default.region $AWS_DEFAULT_REGION
+  - aws s3 sync dist-prod/ $NEW_MS_S3_BUCKET
+  only: ['stage']
+
+
+
+
+   
