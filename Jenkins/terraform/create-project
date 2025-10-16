@@ -1,42 +1,72 @@
-pipeline{
+pipeline {
     agent any
+
     environment {
-        AZDO_ORG_SERVICE_URL = "https://dev.azure.com/Ebizzinfotech/"
-        AZDO_PERSONAL_ACCESS_TOKEN = credentials('Personal-Access-Token')
+        # Replace with your own organization’s Azure DevOps service URL
+        AZDO_ORG_SERVICE_URL = "https://dev.azure.com/<YOUR_ORG_NAME>/"
+
+        # Jenkins credential ID for your Azure DevOps PAT (configure in Jenkins UI)
+        AZDO_PERSONAL_ACCESS_TOKEN = credentials('azdo-pat-token')
+
+        # Dynamic Terraform variable from pipeline parameters
+        TF_VAR_AUTH = "${params.AZURE_TOKEN}"
     }
-    stages{    
-        stage('SCM'){
-            steps{
-               checkout scmGit(branches: [[name: '*/main']], extensions: [], userRemoteConfigs: [[credentialsId: 'ebizz Azure repo', url: 'https://EbizzInfotech@dev.azure.com/EbizzInfotech/DevOps/_git/Terraform_Azure_DevOps']]) 
-            }   
+
+    stages {    
+
+        stage('Set Terraform Variables') {
+            steps {
+                script {
+                    env.TF_VAR_PROJECT_NAME = "${params.PROJECT_NAME}"
+                    env.TF_VAR_PROJECT_DETAILS = "Terraform Managed Repository"
+                    
+                    // Clean up and set repository name
+                    def techList = "[${params.TECHNOLOGIES}]".replaceAll('\\\\', '')
+                    env.TF_VAR_REPO_NAME = techList
+                }
+            }
+        } 
+
+        stage('Checkout Infrastructure Code') {
+            steps {
+                checkout scmGit(
+                    branches: [[name: 'infra/azure-standard-template']],
+                    extensions: [cloneOption(depth: 1, shallow: true)],
+                    userRemoteConfigs: [[
+                        url: 'git@ssh.dev.azure.com:v3/<YOUR_ORG_NAME>/DevOps/terraform-infra-template'
+                    ]]
+                ) 
+            }
         }    
-        stage('Terraform Init'){
-            steps{
-                sh "terraform init"
-            }   
+
+        stage('Terraform Init') {
+            steps {
+                sh 'terraform init'
+            }
         }
-        stage('Terraform Plan'){
-            steps{
-                sh """
-                terraform plan -var 'project_name=[${params.PROJECT_NAME}]' -var 'project_details="${params.PROJECT_DETAILS}"' -var 'Repo_name=[${params.REPO_NAME}]'            
-                """
-            }   
+
+        stage('Terraform Plan') {
+            steps {
+                echo "Terraform Plan for ${env.TF_VAR_PROJECT_NAME}"
+                sh 'terraform plan'
+            }
         }
-        stage('Terraform Apply'){
-            steps{
-                sh """
-                terraform apply -var 'project_name=[${params.PROJECT_NAME}]' -var 'project_details="${params.PROJECT_DETAILS}"' -var 'Repo_name=[${params.REPO_NAME}]' --auto-approve
-                """       
-            }   
+
+        stage('Terraform Apply') {
+            steps {
+                sh 'terraform apply --auto-approve'
+            }
         }
-        stage('Terraform tfstate Artifact'){
-            steps{
+
+        stage('Archive Terraform State') {
+            steps {
                 archiveArtifacts artifacts: 'terraform.tfstate', followSymlinks: false      
-            }   
+            }
         }
     }
-    post{
-        always{
+
+    post {
+        always {
             cleanWs()
         }
     }
