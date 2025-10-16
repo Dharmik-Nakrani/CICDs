@@ -1,0 +1,103 @@
+@Library('My-Shared-Library') _
+
+pipeline {
+    agent {
+        label 'mac'
+    }
+
+    environment {
+        FIREBASE_TOKEN = credentials('firebase_token')
+        PSYCHIC_FIREBASE_ANDROID_ID = credentials('firebase_android_id')
+        PSYCHIC_FIREBASE_IOS_ID = credentials('firebase_ios_id')
+        APPLE_ID = credentials('apple_id')
+    }
+
+    stages {
+
+        stage('Increment Build Number') {
+            steps {
+                script{
+                    if (env.GIT_BRANCH == 'origin/development') {
+                        dir('android') {
+                            sh '/usr/local/bin/fastlane increment_version'
+                        }
+                        dir('ios') {
+                            sh '/usr/local/bin/fastlane increment_version'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Android build') {
+            steps {
+                script {
+                    if (env.GIT_BRANCH == 'origin/development') {
+                        sh '/Users/etechm28/Documents/flutter_sdk/3_0_1/bin/flutter build apk'
+                    }else {
+                        sh '/Users/etechm28/Documents/flutter_sdk/3_0_1/bin/flutter build appbundle'
+                    }
+                }
+            }
+        }
+
+        stage('IOS Build') {
+            steps {
+                script {
+                    if (env.GIT_BRANCH == 'origin/development') {
+                        withCredentials([string(credentialsId: 'mac-server-password', variable: 'SERVER_PASS')]) {
+                            sh "security unlock-keychain -p $SERVER_PASS login.keychain"
+                        }
+                        sh '/Users/etechm28/Documents/flutter_sdk/3_0_1/bin/flutter build ipa --export-options-plist ios/exportIPA.plist'
+                    }else {
+                        withCredentials([string(credentialsId: 'mac-server-password', variable: 'SERVER_PASS')]) {
+                            sh "security unlock-keychain -p $SERVER_PASS login.keychain"
+                        }
+                        sh '/Users/etechm28/Documents/flutter_sdk/3_0_1/bin/flutter build ipa --export-options-plist ios/exportIPA.plist'
+                    }
+                }
+            }
+        }
+
+        stage('Deploy Android App') {
+            steps {
+                script {
+                    dir('android') {
+                        if (env.GIT_BRANCH == 'origin/development') {
+                            sh '/usr/local/bin/fastlane firebase_distribute'
+                        }else {
+                            sh 'echo "Not Setup Yet"'   
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Deploy IOS App') {
+            steps {
+                script {
+                    dir('ios') {
+                        if (env.GIT_BRANCH == 'origin/development') {
+                            sh '/usr/local/bin/fastlane firebase_distribute'
+                        }else {
+                            sh '/usr/local/bin/fastlane upload_to_testflight'
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            successEmail('devang@ebizzinfotech.com,as@ebizzinfotech.com', 'Testflight', 'Firebase')
+        }
+
+        failure {
+            failedEmail('devang@ebizzinfotech.com,as@ebizzinfotech.com', 'http://116.72.16.192:9090/')
+        }
+    }
+}
