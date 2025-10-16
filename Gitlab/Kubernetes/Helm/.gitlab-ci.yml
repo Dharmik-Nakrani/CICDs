@@ -1,0 +1,21 @@
+stages:
+    - upgrade
+
+# before_script:
+#   - aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+#   - aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+#   - aws configure set region $AWS_DEFAULT_REGION
+
+upgrade_dev:
+  stage: upgrade
+  script:
+  - ssh ubuntu@MASTER_IP 'sh update/helm-upgrade.sh'
+  only: ['development']
+
+
+upgrade_stage:
+  stage: upgrade
+  script:
+  - ssh ubuntu@MASTER_IP 'sh update/helm-upgrade.sh'
+  only: ['stage']
+
