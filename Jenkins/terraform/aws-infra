@@ -1,0 +1,62 @@
+pipeline{
+    agent any
+    options {
+        ansiColor('xterm')
+    }
+    environment {
+        AWS_ACCESS_KEY_ID = "${params.AWS_ACCESS_KEY}"
+        AWS_SECRET_ACCESS_KEY = "${params.AWS_SECRET_KEY}"
+        AWS_DEFAULT_REGION = "${params.AWS_REGION}"
+        TF_VAR_vpc_name = "${params.VPC_NAME}"
+        TF_VAR_vpc_cidr = "${params.VPC_CIDR}"
+        TF_VAR_vpc_az = "[${params.VPC_AZ}]"
+        TF_VAR_vpc_private_subnets = "[${params.VPC_PRIVATE_SUBNETS}]"
+        TF_VAR_vpc_public_subnets = "[${params.VPC_PUBLIC_SUBNETS}]"
+        TF_VAR_vpc_enable_nat_gateway = "${params.VPC_NAT_GATEWAY_ENABLE}"
+        TF_VAR_ports = "[${params.PORT}]"
+        TF_VAR_ec2_ami = "${params.EC2_AMI}"
+        TF_VAR_ec2_instance_type = "${params.EC2_INSTANCE_TYPE}"
+        TF_VAR_project_name = "${params.PROJECT_NAME}"
+        TF_VAR_key_name = "${params.KEY_NAME}"
+        TF_VAR_bucket_name = "[${params.BUCKET_NAME}]"
+        TF_VAR_bucket_tag = "[${params.BUCKET_NAME}]"
+        TF_VAR_cnames = "[${params.CNAME}]"
+        TF_VAR_acm_arn = "${params.ACM_ARN}"
+    }
+    stages{    
+        stage('SCM'){
+            steps{
+               checkout scmGit(branches: [[name: 'master']], extensions: [], userRemoteConfigs: [[credentialsId: 'ebizz Azure repo', url: 'https://EbizzInfotech@dev.azure.com/EbizzInfotech/DevOps/_git/AWS-Infra-Terraform']]) 
+            }   
+        }    
+        stage('Terraform Init'){
+            steps{
+                sh "terraform init"
+            }   
+        }
+        stage('Terraform Plan'){
+            steps{
+                sh """
+                terraform plan             
+                """
+            }   
+        }
+        stage('Terraform Apply'){
+            steps{
+                sh """
+                terraform apply --auto-approve
+                """       
+            }   
+        }
+        stage('Terraform tfstate Artifact'){
+            steps{
+                archiveArtifacts artifacts: 'terraform.tfstate', followSymlinks: false      
+            }   
+        }
+    }
+    post{
+        always{
+            cleanWs()
+        }
+    }
+}
